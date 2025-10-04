@@ -766,31 +766,33 @@ def main():
 
     # ------------------ CSV EXPORT ------------------
     def write_csv_for_term(scheduled_list, filename):
-        # Columns: Section, Day(Mon-Sat)/VIRTUAL, TimeSlot, CourseCode, CourseTitle, Lec/Lab, Room, Modality
+        # Columns: Section, Day(Mon-Sat)/VIRTUAL, StartTime, EndTime, CourseCode, CourseTitle, Lec/Lab, Room, Modality
         rows = []
         for s in scheduled_list:
-            # include timeslot for virtual entries as well (room will be VIRTUAL)
-            time_slot = ""
+            start_time = s.get('start_time','') or ''
+            end_time = s.get('end_time','') or ''
             room = s.get('room','')
-            if s.get('start_time') or s.get('end_time'):
-                time_slot = f"{s.get('start_time','')}-{s.get('end_time','')}".strip('-')
             code = s.get('course_code','')
             title = course_title_map.get(code, '')
             rows.append([
                 s.get('section',''),
                 s.get('day',''),
-                time_slot,
+                start_time,
+                end_time,
                 code,
                 title,
                 s.get('component',''),
                 room,
                 "VIRTUAL" if s.get('virtual') else "FTF"
             ])
-        rows.sort(key=lambda r: (r[0], ['Mon','Tue','Wed','Thu','Fri','Sat'].index(r[1]) if r[1] in ['Mon','Tue','Wed','Thu','Fri','Sat'] else 6, r[2]))
+        # sort by section, day order (Mon..Sat), then start time
+        rows.sort(key=lambda r: (r[0],
+                                 DAYS.index(r[1]) if r[1] in DAYS else 6,
+                                 r[2] or ''))
         try:
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Section','Day','TimeSlot','CourseCode','CourseTitle','Lec/Lab','Room','Modality'])
+                writer.writerow(['Section','Day','StartTime','EndTime','CourseCode','CourseTitle','Lec/Lab','Room','Modality'])
                 writer.writerows(rows)
             print(f"Wrote CSV: {filename}")
         except Exception as e:
