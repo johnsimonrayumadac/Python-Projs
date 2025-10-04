@@ -6,29 +6,20 @@ YEARS = [1, 2, 3, 4]
 SECTION_CAPACITY = 40
 
 # ------------------ MAKE SECTIONS ------------------
-def make_sections(populations, capacity=40):
+def make_sections(populations, capacity=SECTION_CAPACITY):
     # populations: {'BSIT':[y1,y2,y3,y4], ...}
-    letters = []
-    for c in range(ord('A'), ord('Z') + 1):
-        letters.append(chr(c))
+    letters = [chr(c) for c in range(ord('A'), ord('Z') + 1)]
     sections_map = {}
     for prog in PROGRAMS:
+        year_list = populations.get(prog, [0, 0, 0, 0])
         sections_map[prog] = {}
-        year_list = populations.get(prog, [0,0,0,0])
-        year_number = 1
-        for pop in year_list:
+        for year_number, pop in enumerate(year_list, start=1):
             year_sections = []
             if pop > 0:
-                need = pop // capacity
-                if pop % capacity != 0:
-                    need += 1
-                i = 0
-                while i < need:
-                    sec_code = prog + str(year_number) + letters[i]
-                    year_sections.append(sec_code)
-                    i += 1
+                need = (pop + capacity - 1) // capacity
+                for i in range(need):
+                    year_sections.append(f"{prog}{year_number}{letters[i]}")
             sections_map[prog][year_number] = year_sections
-            year_number += 1
     return sections_map
 
 # ------------------ HARDCODED COURSE TABLES (Code, Title, LecHrs, LabHrs) ------------------
@@ -272,7 +263,7 @@ def _to_minutes(val):
         return 0
     try:
         return int(round(float(s) * 60))
-    except:
+    except Exception:
         return 0
 
 def add_courses_from_table(program, term, year, table_rows, out_list):
@@ -295,7 +286,7 @@ def add_courses_from_table(program, term, year, table_rows, out_list):
 
 # ------------------ MAIN ------------------
 def main():
-    import argparse
+    import argparse, csv
     parser = argparse.ArgumentParser(description="Classroom scheduling (demo mode loads sample populations)")
     parser.add_argument('--demo', action='store_true', help='Run in demo mode with sample populations and no interactive input')
     parser.add_argument('--export-csv', action='store_true', help='Export generated schedules to CSV files (term1.csv, term2.csv, term3.csv)')
@@ -304,7 +295,6 @@ def main():
     print("=== Enrollment Input ===")
     populations = {}
     if args.demo:
-        # reasonable demo populations to create multiple sections
         populations = {
             'BSIT': [80, 60, 40, 20],
             'BSIS': [50, 30, 20, 10],
@@ -359,7 +349,6 @@ def main():
     courses_term2 = []
     courses_term3 = []
 
-    # helper to add many
     def add_all_terms():
         # BSIT
         add_courses_from_table("BSIT", 1, 1, BSITterm1_year1, courses_term1)
@@ -444,7 +433,6 @@ def main():
     DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     START_MIN = 7 * 60    # 7:00 AM
     END_MIN = 21 * 60     # 9:00 PM
-    # Lunch (blocked) 12:00 PM - 1:00 PM
     LUNCH_START = 12 * 60
     LUNCH_END = 13 * 60
     LECTURE_ROOMS = ["203", "204"]
@@ -455,7 +443,7 @@ def main():
         hour = total // 60
         minute = total % 60
         suffix = "AM" if hour < 12 else "PM"
-        show_hour = hour if 1 <= hour <= 12 else (hour - 12 if hour > 12 else 12)
+        show_hour = hour % 12 or 12
         return f"{show_hour}:{minute:02d}{suffix}"
 
     def _merge_intervals(intervals):
@@ -565,10 +553,6 @@ def main():
 
         return blocks
 
-    # Note: a per-program `schedule_for_courses` helper was removed because
-    # the script uses the global scheduler `schedule_all_courses_global`.
-    # Retaining one scheduler reduces duplication and maintenance.
-
     def schedule_all_courses_global(courses, sections_map, term=1):
         """
         Schedule all courses (filtered by term) using a single global room schedule
@@ -588,8 +572,17 @@ def main():
 
         # Filter courses for the specified term across all programs/years
         courses_filtered = [c for c in courses if c.get("term") == term]
-        # Order courses by total minutes desc to place longer sessions first
-        courses_sorted = sorted(courses_filtered, key=lambda c: (-(c.get("lec_minutes",0)+c.get("lab_minutes",0)), c["program"], c["year"], c["code"]))
+        # Prioritize by year (1 = highest priority), then by total minutes desc,
+        # then by program and code for deterministic tie-breaking.
+        courses_sorted = sorted(
+            courses_filtered,
+            key=lambda c: (
+                c.get("year", 999),  # year ascending: 1 first
+                -(c.get("lec_minutes", 0) + c.get("lab_minutes", 0)),  # longer sessions earlier within same year
+                c.get("program", ""),
+                c.get("code", "")
+            )
+        )
 
         scheduled = []
 
@@ -672,7 +665,6 @@ def main():
     print_grouped(scheduled_all_t3, "TERM 3")
 
     # ------------------ CSV EXPORT ------------------
-    import csv
     def write_csv_for_term(scheduled_list, filename):
         # Columns: Section, Day(Mon-Sat), TimeSlot, CourseCode, Lec/Lab, Room
         rows = []
