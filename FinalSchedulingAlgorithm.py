@@ -539,31 +539,21 @@ def main():
             blocks.append({"component": "LEC", "duration": total - half, "virtual": bool(is_hybrid_year)})
             return blocks
 
-        # lecture component
-        # Only split into two sessions if total lecture time > 2 hours (120 minutes).
+        # lecture component: always split into two sessions (first on-site, second may be virtual for years 1/2)
         if lec_minutes > 0:
-            if lec_minutes > 120:
-                half = lec_minutes // 2
-                if half < 60:
-                    half = 60
-                blocks.append({"component": "LEC", "duration": half, "virtual": False})
-                blocks.append({"component": "LEC", "duration": max(lec_minutes - half, 60), "virtual": bool(is_hybrid_year)})
-            else:
-                # single on-site lecture session when total <= 2 hours
-                blocks.append({"component": "LEC", "duration": lec_minutes, "virtual": False})
+            half = lec_minutes // 2
+            if half < 60:
+                half = 60
+            blocks.append({"component": "LEC", "duration": half, "virtual": False})
+            blocks.append({"component": "LEC", "duration": max(lec_minutes - half, 60), "virtual": bool(is_hybrid_year)})
 
-        # lab component: 2 sessions
-        # Only split lab into two sessions if total lab time > 2 hours (120 minutes).
+        # lab component: always split into two sessions (first on-site, second may be virtual for years 1/2)
         if lab_minutes > 0:
-            if lab_minutes > 120:
-                half = lab_minutes // 2
-                if half < 60:
-                    half = 60
-                blocks.append({"component": "LAB", "duration": half, "virtual": False})
-                blocks.append({"component": "LAB", "duration": max(lab_minutes - half, 60), "virtual": bool(is_hybrid_year)})
-            else:
-                # single on-site lab session when total <= 2 hours
-                blocks.append({"component": "LAB", "duration": lab_minutes, "virtual": False})
+            half = lab_minutes // 2
+            if half < 60:
+                half = 60
+            blocks.append({"component": "LAB", "duration": half, "virtual": False})
+            blocks.append({"component": "LAB", "duration": max(lab_minutes - half, 60), "virtual": bool(is_hybrid_year)})
 
         return blocks
 
