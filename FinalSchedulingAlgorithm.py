@@ -436,10 +436,19 @@ def main():
     VIRTUAL_DAYS = DAYS[3:]
     START_MIN = 7 * 60    # 7:00 AM
     END_MIN = 21 * 60     # 9:00 PM
+    # legacy constants left (no global lunch rule)
     LUNCH_START = 12 * 60
     LUNCH_END = 13 * 60
     LECTURE_ROOMS = ["203", "204"]
     LAB_ROOMS = ["COMLAB1", "COMLAB5", "COMLAB6"]
+
+    # Structured Midday Break Rule (SMBR): per-year fixed break windows (minutes from midnight)
+    SMBR_BREAKS = {
+        1: (11 * 60 + 30, 12 * 60 + 30),  # 11:30 - 12:30
+        2: (12 * 60,       13 * 60),      # 12:00 - 13:00
+        3: (12 * 60 + 30,  13 * 60 + 30), # 12:30 - 13:30
+        4: None                             # no break for 4th year (afternoon only)
+    }
 
     def minutes_to_time(total):
         """Convert minutes-from-midnight to readable time like '7:00AM'."""
@@ -463,16 +472,13 @@ def main():
                 merged.append((s, e))
         return merged
 
-    def find_earliest_slot(room_busy, section_busy, duration, allowed_days=None, section_modality_map=None, desired_modality=None):
+    def find_earliest_slot(room_busy, section_busy, duration, allowed_days=None, section_modality_map=None, desired_modality=None, year_for_break=None):
         """
         Find earliest (day, start) where both room_busy[day] and section_busy[day]
         allow a contiguous slot of `duration` minutes between START_MIN and END_MIN.
-        Lunch interval (LUNCH_START,LUNCH_END) is treated as busy.
-        room_busy and section_busy are dict day->list of (s,e).
-        allowed_days: optional list of days to restrict search.
-        section_modality_map: dict day->'FTF'|'VIRTUAL'|None to prevent mixing modalities.
-        desired_modality: if provided, only days with None or matching modality are allowed.
-        Returns (day, start_min) or None.
+
+        SMBR: if year_for_break is provided and a break interval exists for that year,
+        the break is treated as busy for scheduling (prevents sessions spanning the break).
         """
         days_to_check = allowed_days if allowed_days is not None else DAYS
         candidates = []
@@ -483,11 +489,17 @@ def main():
                 if m is not None and m != desired_modality:
                     continue
 
-            # combine busy intervals for this day (include lunch as busy)
+            # combine busy intervals for this day (include SMBR break as busy when applicable)
             busy = []
             busy.extend(room_busy.get(day, []))
             busy.extend(section_busy.get(day, []))
-            busy.append((LUNCH_START, LUNCH_END))
+
+            # add year-specific break if defined
+            if year_for_break is not None:
+                br = SMBR_BREAKS.get(int(year_for_break))
+                if br:
+                    busy.append(br)
+
             busy = _merge_intervals(busy)
 
             # before first busy interval
@@ -496,7 +508,7 @@ def main():
                 if first_start - START_MIN >= duration and START_MIN + duration <= END_MIN:
                     candidates.append((START_MIN, day))
             else:
-                if START_MIN + duration <= END_MIN and not (START_MIN < LUNCH_END and START_MIN + duration > LUNCH_START):
+                if START_MIN + duration <= END_MIN:
                     candidates.append((START_MIN, day))
 
             # between merged intervals
@@ -631,7 +643,8 @@ def main():
                         day_start = find_earliest_slot(tmp_room_busy, sec_busy, dur,
                                                       allowed_days=allowed_for_block,
                                                       section_modality_map=sec_mod_map,
-                                                      desired_modality=desired_modality)
+                                                      desired_modality=desired_modality,
+                                                      year_for_break=year)
                         if day_start is None:
                             # fallback: record virtual without times (should be rare)
                             scheduled.append({
@@ -676,7 +689,8 @@ def main():
                         day_start = find_earliest_slot(room_schedule[room], sec_busy, dur,
                                                       allowed_days=allowed_for_block,
                                                       section_modality_map=sec_mod_map,
-                                                      desired_modality=desired_modality)
+                                                      desired_modality=desired_modality,
+                                                      year_for_break=year)
                         if day_start is None:
                             continue
                         day, start_min = day_start
