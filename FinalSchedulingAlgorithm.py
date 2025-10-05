@@ -87,7 +87,7 @@ BSITterm3_year3 = [
     ["ITBLAWS", "IT AND BUSINESS LAWS", 4, 0],
 ]
 
-# BSIT — Year 
+# BSIT — Year 4
 BSITterm1_year4 = [
     ["PROFETH", "PROFESSIONAL ETHICS", 4, 0],
     ["SOFTDEV", "SOFTWARE DEVELOPMENT", 2, 2],
@@ -266,6 +266,7 @@ def _to_minutes(val):
     except Exception:
         return 0
 
+
 def add_courses_from_table(program, term, year, table_rows, out_list):
     for row in table_rows:
         if not isinstance(row, (list, tuple)) or len(row) < 1:
@@ -284,9 +285,12 @@ def add_courses_from_table(program, term, year, table_rows, out_list):
             "lab_minutes": _to_minutes(lab),
         })
 
+
 # ------------------ MAIN ------------------
 def main():
-    import argparse, csv
+    import argparse
+    import csv
+
     parser = argparse.ArgumentParser(description="Classroom scheduling (demo mode loads sample populations)")
     parser.add_argument('--demo', action='store_true', help='Run in demo mode with sample populations and no interactive input')
     parser.add_argument('--export-csv', action='store_true', help='Export generated schedules to CSV files (term1.csv, term2.csv, term3.csv)')
@@ -436,18 +440,15 @@ def main():
     VIRTUAL_DAYS = DAYS[3:]
     START_MIN = 7 * 60    # 7:00 AM
     END_MIN = 21 * 60     # 9:00 PM
-    # legacy constants left (no global lunch rule)
-    LUNCH_START = 12 * 60
-    LUNCH_END = 13 * 60
     LECTURE_ROOMS = ["203", "204"]
     LAB_ROOMS = ["COMLAB1", "COMLAB5", "COMLAB6"]
 
     # Structured Midday Break Rule (SMBR): per-year fixed break windows (minutes from midnight)
     SMBR_BREAKS = {
         1: (11 * 60 + 30, 12 * 60 + 30),  # 11:30 - 12:30
-        2: (12 * 60,       13 * 60),      # 12:00 - 13:00
-        3: (12 * 60 + 30,  13 * 60 + 30), # 12:30 - 13:30
-        4: None                             # no break for 4th year (afternoon only)
+        2: (12 * 60, 13 * 60),            # 12:00 - 13:00
+        3: (12 * 60 + 30, 13 * 60 + 30),  # 12:30 - 13:30
+        4: None                           # no break for 4th year
     }
 
     def minutes_to_time(total):
@@ -472,7 +473,9 @@ def main():
                 merged.append((s, e))
         return merged
 
-    def find_earliest_slot(room_busy, section_busy, duration, allowed_days=None, section_modality_map=None, desired_modality=None, year_for_break=None):
+    def find_earliest_slot(room_busy, section_busy, duration,
+                           allowed_days=None, section_modality_map=None,
+                           desired_modality=None, year_for_break=None):
         """
         Find earliest (day, start) where both room_busy[day] and section_busy[day]
         allow a contiguous slot of `duration` minutes between START_MIN and END_MIN.
@@ -482,8 +485,9 @@ def main():
         """
         days_to_check = allowed_days if allowed_days is not None else DAYS
         candidates = []
+
         for day in days_to_check:
-            # if modality constraint prevents using this day, skip
+            # modality constraint: if day already has a modality set and it conflicts, skip
             if section_modality_map is not None and desired_modality is not None:
                 m = section_modality_map.get(day)
                 if m is not None and m != desired_modality:
@@ -514,7 +518,7 @@ def main():
             # between merged intervals
             for i in range(len(busy) - 1):
                 end_now = busy[i][1]
-                start_next = busy[i+1][0]
+                start_next = busy[i + 1][0]
                 if start_next - end_now >= duration and end_now + duration <= END_MIN:
                     candidates.append((end_now, day))
 
@@ -534,61 +538,67 @@ def main():
         """
         Given course dict with lec_minutes and lab_minutes, return list of blocks:
         [{'component':'LEC'|'LAB', 'duration': <minutes>, 'virtual': bool}]
-        For year 1 and year 2 courses the second session of each component is marked virtual.
+
+        Rules:
+        - Do NOT split a component if its total minutes <= MIN_SPLIT_MIN (120).
+        - For components that are split (longer than MIN_SPLIT_MIN), for years 1&2
+          the second session remains virtual (hybrid design).
         """
         blocks = []
         lec_minutes = int(course.get("lec_minutes", 0))
         lab_minutes = int(course.get("lab_minutes", 0))
-        # treat years 1 and 2 as hybrid: second session of each component is virtual
         is_hybrid_year = int(course.get("year", 0)) in (1, 2)
+
+        MIN_SPLIT_MIN = 120  # do not split components <= 120 minutes
 
         # If both zero, fallback to a default two lecture sessions
         if lec_minutes == 0 and lab_minutes == 0:
             total = 160
             half = total // 2
-            # first session on-site, second session virtual for year 1/2
             blocks.append({"component": "LEC", "duration": half, "virtual": False})
             blocks.append({"component": "LEC", "duration": total - half, "virtual": bool(is_hybrid_year)})
             return blocks
 
-        # lecture component: always split into two sessions (first on-site, second may be virtual for years 1/2)
+        # lecture component
         if lec_minutes > 0:
-            half = lec_minutes // 2
-            if half < 60:
-                half = 60
-            blocks.append({"component": "LEC", "duration": half, "virtual": False})
-            blocks.append({"component": "LEC", "duration": max(lec_minutes - half, 60), "virtual": bool(is_hybrid_year)})
+            if lec_minutes <= MIN_SPLIT_MIN:
+                blocks.append({"component": "LEC", "duration": lec_minutes, "virtual": False})
+            else:
+                half = lec_minutes // 2
+                if half < 60:
+                    half = 60
+                blocks.append({"component": "LEC", "duration": half, "virtual": False})
+                blocks.append({"component": "LEC", "duration": max(lec_minutes - half, 60), "virtual": bool(is_hybrid_year)})
 
-        # lab component: always split into two sessions (first on-site, second may be virtual for years 1/2)
+        # lab component
         if lab_minutes > 0:
-            half = lab_minutes // 2
-            if half < 60:
-                half = 60
-            blocks.append({"component": "LAB", "duration": half, "virtual": False})
-            blocks.append({"component": "LAB", "duration": max(lab_minutes - half, 60), "virtual": bool(is_hybrid_year)})
+            if lab_minutes <= MIN_SPLIT_MIN:
+                blocks.append({"component": "LAB", "duration": lab_minutes, "virtual": False})
+            else:
+                half = lab_minutes // 2
+                if half < 60:
+                    half = 60
+                blocks.append({"component": "LAB", "duration": half, "virtual": False})
+                blocks.append({"component": "LAB", "duration": max(lab_minutes - half, 60), "virtual": bool(is_hybrid_year)})
 
         return blocks
 
     def schedule_all_courses_global(courses, sections_map, term=1):
         """
-        Schedule all courses (filtered by term). Virtual blocks are recorded
-        but do not occupy rooms. Virtual blocks are assigned a day/start/end
-        that does not overlap with other sessions for the same section.
-
-        This version alternates the 3-days-FTF / 3-days-VIRTUAL split per
-        section within the same program+year: sections at even indices use
-        FTF_DAYS as FTF and VIRTUAL_DAYS as virtual; odd indices are flipped.
+        Schedule all courses (filtered by term). Enforce SMBR and:
+        - For 1st/2nd year sections: FTF scheduled blocks must not exceed 50% of total blocks.
+          If scheduling an FTF block would exceed that cap, force it to virtual.
+        - If FTF placement fails, try a virtual fallback to reduce unscheduled entries.
         """
         room_schedule = {r: {d: [] for d in DAYS} for r in (LECTURE_ROOMS + LAB_ROOMS)}
         section_schedule = {}
         section_modality = {}  # section -> day->'FTF'|'VIRTUAL'|None
 
         # Prepare alternating split per section (per program+year)
-        section_day_split = {}  # sec -> {'FTF': [...], 'VIRTUAL': [...]}
+        section_day_split = {}
         for prog in sections_map:
             for y, secs in sections_map[prog].items():
                 for idx, sec in enumerate(secs):
-                    # even index => pattern A, odd index => flipped pattern
                     if idx % 2 == 0:
                         section_day_split[sec] = {"FTF": FTF_DAYS, "VIRTUAL": VIRTUAL_DAYS}
                     else:
@@ -599,7 +609,6 @@ def main():
                 for sec in secs:
                     section_schedule[sec] = {d: [] for d in DAYS}
                     section_modality[sec] = {d: None for d in DAYS}
-                    # ensure split exists for any section (fallback to default)
                     section_day_split.setdefault(sec, {"FTF": FTF_DAYS, "VIRTUAL": VIRTUAL_DAYS})
 
         courses_filtered = [c for c in courses if c.get("term") == term]
@@ -612,6 +621,21 @@ def main():
                 c.get("code", "")
             )
         )
+
+        # Precompute allowed FTF limit (50%) and initialize counters per section
+        section_allowed_ftf = {}
+        section_ftf_count = {}
+        for prog in sections_map:
+            for y, secs in sections_map[prog].items():
+                # collect courses for this program+year
+                relevant_courses = [c for c in courses_filtered if c.get("program") == prog and c.get("year") == y]
+                for sec in secs:
+                    total = 0
+                    for c in relevant_courses:
+                        total += len(build_session_blocks_for_course(c))
+                    # allowed FTF blocks = floor(total / 2)
+                    section_allowed_ftf[sec] = total // 2
+                    section_ftf_count[sec] = 0
 
         scheduled = []
 
@@ -627,26 +651,39 @@ def main():
                 for blk in blocks:
                     comp = blk["component"]
                     dur = blk["duration"]
-                    is_virtual = bool(blk.get("virtual"))
+                    orig_is_virtual = bool(blk.get("virtual"))
 
-                    # Years 1 and 2 use the alternating 3-days-FTF / 3-days-VIRTUAL split
+                    # Determine allowed days and desired modality based on orig block and year
                     if int(year) in (1, 2):
-                        allowed_for_block = sec_split["VIRTUAL"] if is_virtual else sec_split["FTF"]
-                        desired_modality = "VIRTUAL" if is_virtual else "FTF"
+                        allowed_for_block = sec_split["VIRTUAL"] if orig_is_virtual else sec_split["FTF"]
+                        desired_modality = "VIRTUAL" if orig_is_virtual else "FTF"
                     else:
                         allowed_for_block = None
-                        desired_modality = "FTF"  # non-first/second-year are FTF by default
+                        desired_modality = "FTF"
 
-                    if is_virtual:
-                        # no room constraints for virtual, but respect modality/day split
+                    # Enforce 50% FTF cap for years 1 & 2: if this block would be FTF and cap reached, force virtual
+                    effective_is_virtual = orig_is_virtual
+                    if int(year) in (1, 2) and not orig_is_virtual:
+                        allowed_ftf = section_allowed_ftf.get(sec, 0)
+                        current_ftf = section_ftf_count.get(sec, 0)
+                        if current_ftf >= allowed_ftf:
+                            effective_is_virtual = True
+                            # adjust allowed days / desired modality to virtual
+                            allowed_for_block = sec_split["VIRTUAL"]
+                            desired_modality = "VIRTUAL"
+
+                    if effective_is_virtual:
+                        # schedule as virtual: no room occupancy, but avoid section conflicts and honor SMBR
                         tmp_room_busy = {d: [] for d in DAYS}
-                        day_start = find_earliest_slot(tmp_room_busy, sec_busy, dur,
-                                                      allowed_days=allowed_for_block,
-                                                      section_modality_map=sec_mod_map,
-                                                      desired_modality=desired_modality,
-                                                      year_for_break=year)
+                        day_start = find_earliest_slot(
+                            tmp_room_busy, sec_busy, dur,
+                            allowed_days=allowed_for_block,
+                            section_modality_map=sec_mod_map,
+                            desired_modality=desired_modality,
+                            year_for_break=year
+                        )
                         if day_start is None:
-                            # fallback: record virtual without times (should be rare)
+                            # fallback: record virtual without times
                             scheduled.append({
                                 "course_code": course["code"],
                                 "section": sec,
@@ -663,7 +700,6 @@ def main():
                             continue
                         day, start_min = day_start
                         end_min = start_min + dur
-                        # reserve section time and set modality so no mixing on that day
                         section_schedule[sec][day].append((start_min, end_min))
                         section_modality[sec][day] = "VIRTUAL"
                         scheduled.append({
@@ -681,16 +717,18 @@ def main():
                         })
                         continue
 
-                    # On-site (FTF) scheduling: respect modality/day split and avoid days already marked VIRTUAL
+                    # On-site scheduling (effective_is_virtual is False)
                     rooms = LECTURE_ROOMS if comp == "LEC" else LAB_ROOMS
                     placed = False
                     best_choice = None
                     for room in rooms:
-                        day_start = find_earliest_slot(room_schedule[room], sec_busy, dur,
-                                                      allowed_days=allowed_for_block,
-                                                      section_modality_map=sec_mod_map,
-                                                      desired_modality=desired_modality,
-                                                      year_for_break=year)
+                        day_start = find_earliest_slot(
+                            room_schedule[room], sec_busy, dur,
+                            allowed_days=allowed_for_block,
+                            section_modality_map=sec_mod_map,
+                            desired_modality=desired_modality,
+                            year_for_break=year
+                        )
                         if day_start is None:
                             continue
                         day, start_min = day_start
@@ -705,7 +743,6 @@ def main():
                         end_min = start_min + dur
                         room_schedule[room][day].append((start_min, end_min))
                         section_schedule[sec][day].append((start_min, end_min))
-                        # mark day modality as FTF (prevents virtual on same day)
                         section_modality[sec][day] = "FTF"
                         scheduled.append({
                             "course_code": course["code"],
@@ -721,21 +758,49 @@ def main():
                             "virtual": False,
                         })
                         placed = True
+                        # increment FTF counter for this section
+                        section_ftf_count[sec] = section_ftf_count.get(sec, 0) + 1
+
                     if not placed:
+                        # Try virtual fallback (to reduce unscheduled classes)
+                        tmp_room_busy = {d: [] for d in DAYS}
+                        day_start = find_earliest_slot(
+                            tmp_room_busy, sec_busy, dur,
+                            allowed_days=sec_split["VIRTUAL"] if int(year) in (1,2) else None,
+                            section_modality_map=sec_mod_map,
+                            desired_modality="VIRTUAL" if int(year) in (1,2) else "FTF",
+                            year_for_break=year
+                        )
+                        if day_start is not None:
+                            day, start_min = day_start
+                            end_min = start_min + dur
+                            section_schedule[sec][day].append((start_min, end_min))
+                            section_modality[sec][day] = "VIRTUAL"
+                            scheduled.append({
+                                "course_code": course["code"],
+                                "section": sec,
+                                "term": term,
+                                "year": year,
+                                "day": day,
+                                "start_time": minutes_to_time(start_min),
+                                "end_time": minutes_to_time(end_min),
+                                "room": "VIRTUAL",
+                                "component": comp,
+                                "duration_min": dur,
+                                "virtual": True,
+                            })
+                            continue
+
                         print(f"[WARN] Could not place {course['code']} ({comp} {dur}min) for section {sec}")
 
         return scheduled
 
-    # ------------------ INTEGRATE SCHEDULER CALL (BSIT year1 term1) ------------------
-    # Place this call after your existing course-loading code in main()
-    # Example: after 'courses' is built for BSIT year1 term1 you can call:
-
-    # Run a global scheduler per term (terms are isolated)
+    # ------------------ RUN SCHEDULER PER TERM ------------------
     scheduled_all_t1 = schedule_all_courses_global(courses_term1, sections_map, term=1)
     scheduled_all_t2 = schedule_all_courses_global(courses_term2, sections_map, term=2)
     scheduled_all_t3 = schedule_all_courses_global(courses_term3, sections_map, term=3)
-    # Group scheduled entries by section (built inside print_grouped)
-    # Print results per term
+
+    # Grouped printing
     def print_grouped(scheduled_list, term_label):
         by_section = {}
         for s in scheduled_list:
@@ -748,13 +813,14 @@ def main():
         for sec in sorted(by_section.keys()):
             print(f"\n Section {sec}:")
             entries = by_section[sec]
-            # sort: on-site sessions first by day/start, virtual last
+
             def sort_key(e):
                 if e.get('virtual'):
                     return (1, 99, "")
                 day = e.get('day', '')
                 day_idx = DAYS.index(day) if day in DAYS else 0
-                return (0, day_idx, e.get('start_time',''))
+                return (0, day_idx, e.get('start_time', ''))
+
             for entry in sorted(entries, key=sort_key):
                 vflag = "VIRTUAL" if entry.get('virtual') else "FTF"
                 if entry.get('start_time') and entry.get('end_time'):
@@ -773,30 +839,28 @@ def main():
         # Columns: Section, Day(Mon-Sat)/VIRTUAL, StartTime, EndTime, CourseCode, CourseTitle, Lec/Lab, Room, Modality
         rows = []
         for s in scheduled_list:
-            start_time = s.get('start_time','') or ''
-            end_time = s.get('end_time','') or ''
-            room = s.get('room','')
-            code = s.get('course_code','')
+            start_time = s.get('start_time', '') or ''
+            end_time = s.get('end_time', '') or ''
+            room = s.get('room', '')
+            code = s.get('course_code', '')
             title = course_title_map.get(code, '')
             rows.append([
-                s.get('section',''),
-                s.get('day',''),
+                s.get('section', ''),
+                s.get('day', ''),
                 start_time,
                 end_time,
                 code,
                 title,
-                s.get('component',''),
+                s.get('component', ''),
                 room,
                 "VIRTUAL" if s.get('virtual') else "FTF"
             ])
         # sort by section, day order (Mon..Sat), then start time
-        rows.sort(key=lambda r: (r[0],
-                                 DAYS.index(r[1]) if r[1] in DAYS else 6,
-                                 r[2] or ''))
+        rows.sort(key=lambda r: (r[0], DAYS.index(r[1]) if r[1] in DAYS else 6, r[2] or ''))
         try:
             with open(filename, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['Section','Day','StartTime','EndTime','CourseCode','CourseTitle','Lec/Lab','Room','Modality'])
+                writer.writerow(['Section', 'Day', 'StartTime', 'EndTime', 'CourseCode', 'CourseTitle', 'Lec/Lab', 'Room', 'Modality'])
                 writer.writerows(rows)
             print(f"Wrote CSV: {filename}")
         except Exception as e:
@@ -804,14 +868,12 @@ def main():
 
     def export_csv_prompt():
         """Ask user (y/n) whether to export CSVs. Returns True if exported."""
-        # If flag provided, export without asking
         if args.export_csv:
             write_csv_for_term(scheduled_all_t1, 'term1_schedule.csv')
             write_csv_for_term(scheduled_all_t2, 'term2_schedule.csv')
             write_csv_for_term(scheduled_all_t3, 'term3_schedule.csv')
             return True
 
-        # interactive prompt
         try:
             resp = input('\nWould you like to export the schedules to CSV files? (y/n): ').strip().lower()
         except EOFError:
@@ -824,8 +886,8 @@ def main():
         print('CSV export skipped.')
         return False
 
-    # call the prompt at end
     export_csv_prompt()
+
 
 if __name__ == "__main__":
     main()
